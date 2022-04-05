@@ -89,6 +89,15 @@ func (o *opVim) handleVimNormalMovement(r rune, readNext func() rune) (t rune, h
 		default:
 			rb.MoveTo(next, prevChar, reverse)
 		}
+	case 'v':
+		next := readNext()
+		switch next {
+		case 'v':
+			rb.openInEditor()
+		default:
+			return t, false
+		}
+		return t, true
 	default:
 		return r, false
 	}
