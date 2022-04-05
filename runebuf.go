@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -627,4 +629,58 @@ func (r *RuneBuffer) cleanWithIdxLine(idxLine int) {
 	}
 	r.hadClean = true
 	r.cleanOutput(r.w, idxLine)
+}
+
+func (r *RuneBuffer) openInEditor() {
+	// Create a temp file and write the RuneBuffer into it.
+	tmpFile, err := os.CreateTemp("", "repl-*")
+	if err != nil {
+		panic(err) // FIXME
+	}
+	defer os.Remove(tmpFile.Name())
+
+	x := r.Reset()
+	tmpFile.WriteString(string(x))
+	tmpFile.Close() // Close the file now, and we'll open it after EDITOR exits
+
+	editorName := os.Getenv("EDITOR")
+	if editorName == "" {
+		editorName = "vi"
+	}
+
+	// Open the editor and the temp file.
+	editor := exec.Command("/bin/sh", "-c", editorName+" "+tmpFile.Name())
+	editor.Stdin = os.Stdin
+	editor.Stdout = os.Stdout
+	editor.Stderr = os.Stderr
+	editor.Run()
+
+	tmpFile, err = os.Open(tmpFile.Name())
+	if err != nil {
+		panic(err) // FIXME
+	}
+	defer tmpFile.Close()
+	contents, err := io.ReadAll(tmpFile)
+	if err != nil {
+		panic(err)
+	}
+
+	// Rewrite the file content to the RuneBuffer.
+	contentsAsRunes := convertAndClean(contents)
+	r.Erase()
+	r.Refresh(func() {
+		r.idx = len(contentsAsRunes)
+		r.buf = contentsAsRunes
+	})
+}
+
+// convertAndClean converts the []byte from the temp file, and removes any line ending that the editor may have added.
+// Checks if the file has a '\n' as the last character, if so remove it because this library interprets it as a press
+// of the Enter key. TBH this is kind of hacky and I'd value a better approach.
+func convertAndClean(b []byte) []rune {
+	s := string(b)
+	if s[len(s)-1] == '\n' {
+		s = s[:len(s)-1]
+	}
+	return []rune(s)
 }
